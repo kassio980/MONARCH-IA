@@ -57,7 +57,7 @@ function ensureDirs() {
     [FILES.config]: {
       openai: {
         apiKey: '',
-        model: process.env.OPENAI_MODEL || 'gpt-5.5',
+        model: process.env.OPENAI_MODEL || 'gpt-5.6',
         prompt: 'Você é uma IA amigável, inteligente, objetiva e útil. Responda em português do Brasil.',
         temperature: 0.7,
       },
@@ -127,7 +127,7 @@ function loadConfig() {
   return readJSON(FILES.config, {
     openai: {
       apiKey: '',
-      model: process.env.OPENAI_MODEL || 'gpt-5.5',
+      model: process.env.OPENAI_MODEL || 'gpt-5.6',
       prompt: 'Você é uma IA amigável, inteligente, objetiva e útil. Responda em português do Brasil.',
       temperature: 0.7,
     },
@@ -365,6 +365,17 @@ function splitText(text, size = 1900) {
     parts.push(text.slice(i, i + size));
   }
   return parts;
+}
+
+function formatOpenAIError(error) {
+  const parts = [];
+  if (error?.name) parts.push(`Nome: ${error.name}`);
+  if (error?.message) parts.push(`Mensagem: ${error.message}`);
+  if (error?.status) parts.push(`Status: ${error.status}`);
+  if (error?.code) parts.push(`Code: ${error.code}`);
+  const api = error?.error?.message || error?.response?.data?.error?.message;
+  if (api) parts.push(`API: ${api}`);
+  return parts.join(" | ") || String(error);
 }
 
 function buildUserPanel(userId) {
@@ -737,18 +748,41 @@ async function askAI(userId, text, options = {}) {
 
   const client = getAIClient(apiKey);
 
-  const response = await client.responses.create({
-    model,
-    input: messages,
-    store: false,
-  });
+  let response;
+
+  try {
+    response = await client.responses.create({
+      model,
+      input: messages,
+      store: false,
+    });
+  } catch (error) {
+    appendLog(`OPENAI_ERROR | model=${model} | ${formatOpenAIError(error)}`);
+
+    // fallback automático
+    if (model !== 'gpt-5.5') {
+      try {
+        response = await client.responses.create({
+          model: 'gpt-5.5',
+          input: messages,
+          store: false,
+        });
+        appendLog('OPENAI_FALLBACK | gpt-5.6 -> gpt-5.5');
+      } catch (fallbackError) {
+        appendLog(`OPENAI_FALLBACK_ERROR | ${formatOpenAIError(fallbackError)}`);
+        throw fallbackError;
+      }
+    } else {
+      throw error;
+    }
+  }
 
   let answer = '';
-  if (typeof response.output_text === 'string') {
+  if (typeof response?.output_text === 'string') {
     answer = response.output_text.trim();
   }
 
-  if (!answer && Array.isArray(response.output)) {
+  if (!answer && Array.isArray(response?.output)) {
     const chunks = [];
     for (const item of response.output) {
       if (item?.content && Array.isArray(item.content)) {
@@ -1737,7 +1771,7 @@ client.on(Events.MessageCreate, async (message) => {
     console.error('Erro ao processar mensagem:', error);
     appendLog(`MESSAGE_ERROR | ${String(error)}`);
     try {
-      await message.reply('Não consegui responder agora. Verifique a API e tente novamente.');
+      await message.reply('Não consegui responder agora. Verifique a chave, o modelo e os logs do Render.');
     } catch {}
   }
 });
