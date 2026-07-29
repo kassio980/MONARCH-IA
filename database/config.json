@@ -1,0 +1,13 @@
+{
+  "openai": {
+    "apiKey": "",
+    "model": "gpt-5.5",
+    "prompt": "Você é uma IA amigável, inteligente, objetiva e útil. Responda em português do Brasil.",
+    "temperature": 0.7
+  },
+  "payments": {
+    "asaasApiKey": "",
+    "webhook": "",
+    "environment": "sandbox"
+  }
+}

@@ -1,0 +1,28 @@
+services:
+  - type: worker
+    name: monarch-ia
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.5
+      - key: OPENAI_IMAGE_MODEL
+        value: gpt-image-1
+      - key: ASAAS_API_KEY
+        sync: false
+      - key: ASAAS_WEBHOOK
+        sync: false
+      - key: ASAAS_ENVIRONMENT
+        value: sandbox
