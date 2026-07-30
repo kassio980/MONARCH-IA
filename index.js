@@ -4,7 +4,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const OpenAI = require('openai');
+const { GoogleGenAI } = require('@google/genai');
 const {
   Client,
   GatewayIntentBits,
@@ -698,113 +698,107 @@ function summarizeProjectFromMessage(text) {
 }
 
 function getAIClient(apiKey) {
-  return new OpenAI({ apiKey });
+  return new GoogleGenAI({
+    apiKey,
+  });
 }
+
 
 async function askAI(userId, text, options = {}) {
   const { countMessage = true, extraSystem = '' } = options;
 
   const user = getUser(userId);
   const config = loadConfig();
-  const apiKey = (user.apiKey || config.openai?.apiKey || process.env.OPENAI_API_KEY || '').trim();
-  const model = config.openai?.model || process.env.OPENAI_MODEL || 'gpt-5.5';
-  const systemPrompt = [
-    config.openai?.prompt || '',
-    user.persona || '',
-    extraSystem || '',
-  ].filter(Boolean).join('\n\n');
+
+  const apiKey =
+    (user.apiKey ||
+     config.openai?.apiKey ||
+     process.env.GEMINI_API_KEY ||
+     "").trim();
 
   if (!apiKey) {
-    throw new Error('Nenhuma API da OpenAI foi configurada.');
+    throw new Error("Nenhuma API do Gemini foi configurada.");
   }
 
   if (countMessage && !canUseAI(userId)) {
     return {
       blocked: true,
-      text: `Você atingiu o limite gratuito de ${FREE_LIMIT} mensagens. Use um plano premium ou peça ao dono para liberar sua licença.`,
+      text: `Você atingiu o limite gratuito de ${FREE_LIMIT} mensagens.`,
     };
   }
 
-  const messages = [{ role: 'system', content: systemPrompt }];
-
-  const mem = loadMemoryStore()[userId] || [];
-  if (user.memoryEnabled && mem.length > 0) {
-    messages.push({
-      role: 'system',
-      content: `Memórias do usuário:\n- ${mem.map((m) => m.text).join('\n- ')}`,
-    });
-  }
-
-  const hist = loadHistoryStore()[userId] || [];
-  if (user.memoryEnabled && hist.length > 0) {
-    for (const item of hist.slice(-12)) {
-      if (item?.role && item?.content) {
-        messages.push({ role: item.role, content: item.content });
-      }
-    }
-  }
-
-  messages.push({ role: 'user', content: text });
-
   const client = getAIClient(apiKey);
 
-  let response;
+  let prompt = "";
 
-  try {
-    response = await client.responses.create({
-      model,
-      input: messages,
-      store: false,
-    });
-  } catch (error) {
-    appendLog(`OPENAI_ERROR | model=${model} | ${formatOpenAIError(error)}`);
+  prompt += (config.openai?.prompt || "") + "\n";
+  prompt += (user.persona || "") + "\n";
+  prompt += (extraSystem || "") + "\n\n";
 
-    // fallback automático
-    if (model !== 'gpt-5.5') {
-      try {
-        response = await client.responses.create({
-          model: 'gpt-5.5',
-          input: messages,
-          store: false,
-        });
-        appendLog('OPENAI_FALLBACK | gpt-5.6 -> gpt-5.5');
-      } catch (fallbackError) {
-        appendLog(`OPENAI_FALLBACK_ERROR | ${formatOpenAIError(fallbackError)}`);
-        throw fallbackError;
-      }
-    } else {
-      throw error;
+  if (user.memoryEnabled) {
+
+    const mem = loadMemoryStore()[userId] || [];
+
+    if (mem.length) {
+      prompt += "MEMÓRIAS:\n";
+      mem.forEach(m=>{
+        prompt += "- " + m.text + "\n";
+      });
+      prompt += "\n";
+    }
+
+    const hist = loadHistoryStore()[userId] || [];
+
+    if (hist.length) {
+      prompt += "CONVERSA:\n";
+
+      hist.slice(-12).forEach(h=>{
+        prompt += h.role.toUpperCase()+": "+h.content+"\n";
+      });
+
+      prompt += "\n";
     }
   }
 
-  let answer = '';
-  if (typeof response?.output_text === 'string') {
-    answer = response.output_text.trim();
-  }
+  prompt += "USUÁRIO:\n"+text;
 
-  if (!answer && Array.isArray(response?.output)) {
-    const chunks = [];
-    for (const item of response.output) {
-      if (item?.content && Array.isArray(item.content)) {
-        for (const c of item.content) {
-          if (c?.text) chunks.push(c.text);
-        }
+  try{
+
+      const response = await client.models.generateContent({
+          model:"gemini-2.5-flash",
+          contents:prompt
+      });
+
+      const answer =
+      response.text ||
+      "Não consegui gerar resposta.";
+
+      if(countMessage){
+
+          addChatCount(userId);
+
+          historyAdd(userId,"user",text);
+          historyAdd(userId,"assistant",answer);
+
       }
-    }
-    answer = chunks.join('\n').trim();
+
+      appendLog("GEMINI | "+userId);
+
+      return {
+          blocked:false,
+          text:answer
+      };
+
+  }catch(err){
+
+      appendLog("GEMINI_ERROR | "+String(err));
+
+      throw err;
+
   }
 
-  if (!answer) answer = 'Não consegui gerar uma resposta agora.';
-
-  if (countMessage) {
-    addChatCount(userId);
-    historyAdd(userId, 'user', text);
-    historyAdd(userId, 'assistant', answer);
-  }
-
-  appendLog(`AI | ${userId} | ${text.slice(0, 120).replace(/\n/g, ' ')}`);
-  return { blocked: false, text: answer };
 }
+
 
 async function generateImage(userId, prompt) {
   const user = getUser(userId);

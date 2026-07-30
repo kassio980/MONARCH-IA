@@ -8,10 +8,11 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@google/genai": "^2.14.0",
     "body-parser": "^2.3.0",
     "discord.js": "^14.27.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "openai": "^5.0.0"
+    "groq-sdk": "^1.4.1"
   }
 }
